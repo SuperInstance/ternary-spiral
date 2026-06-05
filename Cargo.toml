@@ -1,0 +1,8 @@
+[package]
+name = "ternary-spiral"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "ternary_spiral"
+path = "src/lib.rs"
