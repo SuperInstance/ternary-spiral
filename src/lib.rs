@@ -213,9 +213,43 @@ pub struct BiodiversityIndex {
 }
 
 impl BiodiversityIndex {
+    /// Compute the indices from a spatial grid.
+    ///
+    /// For an empty grid all three fields are `0.0`. The cell count is formed
+    /// as `(width as f64) * (height as f64)` rather than `(width * height)` so
+    /// that very large grids cannot overflow the `usize` intermediate before
+    /// the cast to `f64`.
     pub fn compute(grid: &SpatialGrid) -> Self {
-        let total = (grid.width * grid.height) as f64;
-        if total == 0.0 {
+        let total = (grid.width as f64) * (grid.height as f64);
+        let counts = [
+            grid.count(RPSCell::Rock) as f64,
+            grid.count(RPSCell::Paper) as f64,
+            grid.count(RPSCell::Scissors) as f64,
+        ];
+        Self::from_counts(&counts, total)
+    }
+
+    /// Compute the indices directly from a [`SpiralWave`] snapshot, without
+    /// needing access to the underlying grid.
+    ///
+    /// This is useful after [`run_simulation`], which returns counts but
+    /// discards the final grid — callers can obtain biodiversity without having
+    /// to reconstruct and re-step the whole lattice.
+    pub fn from_wave(wave: &SpiralWave) -> Self {
+        let total = wave.total_cells() as f64;
+        let counts = [
+            wave.rock_count as f64,
+            wave.paper_count as f64,
+            wave.scissors_count as f64,
+        ];
+        Self::from_counts(&counts, total)
+    }
+
+    /// Shared core: Shannon entropy, Simpson index and evenness from species
+    /// counts and a total population. An empty population (total `<= 0`) yields
+    /// all-zero indices.
+    fn from_counts(counts: &[f64; 3], total: f64) -> Self {
+        if total <= 0.0 {
             return BiodiversityIndex {
                 shannon_entropy: 0.0,
                 simpson_index: 0.0,
@@ -223,15 +257,9 @@ impl BiodiversityIndex {
             };
         }
 
-        let counts = [
-            grid.count(RPSCell::Rock) as f64,
-            grid.count(RPSCell::Paper) as f64,
-            grid.count(RPSCell::Scissors) as f64,
-        ];
-
         let mut shannon = 0.0f64;
         let mut sum_sq = 0.0f64;
-        for &c in &counts {
+        for &c in counts {
             let p = c / total;
             if p > 0.0 {
                 shannon -= p * p.ln();
