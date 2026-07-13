@@ -585,4 +585,138 @@ mod tests {
             assert_eq!(snap.generation, (i + 1) as u64);
         }
     }
+
+    #[test]
+    fn rps_to_trit_roundtrip() {
+        // to_trit is the inverse of from_trit for every valid cell.
+        for cell in [RPSCell::Rock, RPSCell::Paper, RPSCell::Scissors] {
+            assert_eq!(RPSCell::from_trit(cell.to_trit()), Some(cell));
+        }
+        assert_eq!(RPSCell::Rock.to_trit(), -1);
+        assert_eq!(RPSCell::Paper.to_trit(), 0);
+        assert_eq!(RPSCell::Scissors.to_trit(), 1);
+    }
+
+    #[test]
+    fn rps_from_trit_out_of_range() {
+        // Every i8 outside {-1, 0, 1} is invalid.
+        for t in [-128, -2, 2, 3, 127] {
+            assert_eq!(RPSCell::from_trit(t), None, "trit {t} should be invalid");
+        }
+    }
+
+    #[test]
+    fn grid_empty_is_noop() {
+        // A 0x0 grid has no cells; every operation is a harmless no-op.
+        let mut grid = SpatialGrid::new(0, 0);
+        assert_eq!(grid.count(RPSCell::Paper), 0);
+        grid.step(); // must not panic
+        let idx = BiodiversityIndex::compute(&grid);
+        assert_eq!(idx.shannon_entropy, 0.0);
+        assert_eq!(idx.simpson_index, 0.0);
+        assert_eq!(idx.evenness, 0.0);
+        assert!(!idx.is_diverse());
+    }
+
+    #[test]
+    fn grid_single_cell_is_stable() {
+        // On a 1x1 torus the sole cell is all four of its own neighbors; since
+        // no species beats itself, the cell never changes.
+        let mut grid = SpatialGrid::new(1, 1);
+        grid.set(0, 0, RPSCell::Rock);
+        assert_eq!(grid.neighbors(0, 0), vec![RPSCell::Rock; 4]);
+        for _ in 0..5 {
+            grid.step();
+            assert_eq!(grid.get(0, 0), RPSCell::Rock);
+        }
+    }
+
+    #[test]
+    fn dominant_species_none_when_balanced() {
+        // No species exceeds 50% -> None.
+        let wave = SpiralWave {
+            generation: 1,
+            rock_count: 4,
+            paper_count: 4,
+            scissors_count: 4,
+        };
+        assert_eq!(wave.total_cells(), 12);
+        assert_eq!(wave.dominant_species(), None);
+    }
+
+    #[test]
+    fn dominant_species_empty_is_none() {
+        let wave = SpiralWave {
+            generation: 0,
+            rock_count: 0,
+            paper_count: 0,
+            scissors_count: 0,
+        };
+        assert_eq!(wave.total_cells(), 0);
+        assert_eq!(wave.dominant_species(), None);
+        assert!(!wave.is_coexisting());
+    }
+
+    #[test]
+    fn biodiversity_hand_derived() {
+        // Independent hand derivation for Rock=2, Paper=1, Scissors=0 (total 3):
+        //   p        = (2/3, 1/3, 0)
+        //   Shannon  = -(2/3 ln(2/3) + 1/3 ln(1/3)) = 0.6365141682948128
+        //   Simpson  = 1 - ((2/3)^2 + (1/3)^2)      = 4/9 = 0.4444444444444444
+        //   Evenness = Shannon / ln(3)              = 0.5793801642856949
+        let mut grid = SpatialGrid::new(3, 1); // 3 Paper by default
+        grid.set(0, 0, RPSCell::Rock);
+        grid.set(1, 0, RPSCell::Rock);
+        let idx = BiodiversityIndex::compute(&grid);
+        assert!(
+            (idx.shannon_entropy - 0.6365141682948128).abs() < 1e-12,
+            "shannon {}",
+            idx.shannon_entropy
+        );
+        assert!(
+            (idx.simpson_index - 4.0 / 9.0).abs() < 1e-12,
+            "simpson {}",
+            idx.simpson_index
+        );
+        assert!(
+            (idx.evenness - 0.5793801642856949).abs() < 1e-12,
+            "evenness {}",
+            idx.evenness
+        );
+        assert!(idx.is_diverse());
+    }
+
+    #[test]
+    fn biodiversity_from_wave_matches_compute() {
+        // from_wave must agree with compute for the same counts.
+        let mut grid = SpatialGrid::new(4, 4);
+        grid.set(0, 0, RPSCell::Rock);
+        grid.set(1, 0, RPSCell::Scissors);
+        let wave = SpiralWave::from_grid(&grid, 1);
+        let a = BiodiversityIndex::compute(&grid);
+        let b = BiodiversityIndex::from_wave(&wave);
+        assert!((a.shannon_entropy - b.shannon_entropy).abs() < 1e-12);
+        assert!((a.simpson_index - b.simpson_index).abs() < 1e-12);
+        assert!((a.evenness - b.evenness).abs() < 1e-12);
+    }
+
+    #[test]
+    fn coexistence_metric_empty_and_partial() {
+        // Empty history -> 0.0 (no division by zero).
+        assert_eq!(coexistence_metric(&[]), 0.0);
+        // Mixed history: 2 of 3 generations coexist -> 2/3.
+        let co = || SpiralWave {
+            generation: 0,
+            rock_count: 34,
+            paper_count: 33,
+            scissors_count: 33,
+        };
+        let not = SpiralWave {
+            generation: 0,
+            rock_count: 1,
+            paper_count: 50,
+            scissors_count: 49,
+        };
+        assert!((coexistence_metric(&[co(), co(), not]) - 2.0 / 3.0).abs() < 1e-12);
+    }
 }
