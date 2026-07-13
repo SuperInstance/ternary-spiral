@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 // Spiral wave dynamics from Rock-Paper-Scissors cyclic dominance.
 // Uses ternary cell states (-1, 0, 1) mapped to Rock, Paper, Scissors.
 
@@ -64,7 +62,11 @@ impl SpatialGrid {
                 *cell = RPSCell::from_trit(trit).unwrap_or(RPSCell::Paper);
             }
         }
-        SpatialGrid { width, height, cells }
+        SpatialGrid {
+            width,
+            height,
+            cells,
+        }
     }
 
     pub fn get(&self, x: usize, y: usize) -> RPSCell {
@@ -103,12 +105,7 @@ impl SpatialGrid {
                 let up = if y == 0 { self.height - 1 } else { y - 1 };
                 let down = if y + 1 >= self.height { 0 } else { y + 1 };
 
-                let neighbor_cells = [
-                    old[y][left],
-                    old[y][right],
-                    old[up][x],
-                    old[down][x],
-                ];
+                let neighbor_cells = [old[y][left], old[y][right], old[up][x], old[down][x]];
 
                 let beaters: Vec<RPSCell> = neighbor_cells
                     .iter()
@@ -260,9 +257,7 @@ impl BiodiversityIndex {
 
 /// Returns a list of (x, y, attacker, defender) for cells where an attacking
 /// neighbor beats the current cell.
-pub fn detect_invasion_fronts(
-    grid: &SpatialGrid,
-) -> Vec<(usize, usize, RPSCell, RPSCell)> {
+pub fn detect_invasion_fronts(grid: &SpatialGrid) -> Vec<(usize, usize, RPSCell, RPSCell)> {
     let mut fronts = Vec::new();
     for y in 0..grid.height {
         for x in 0..grid.width {
@@ -288,12 +283,7 @@ pub fn coexistence_metric(history: &[SpiralWave]) -> f64 {
 }
 
 /// Run the full simulation and return a snapshot after each step.
-pub fn run_simulation(
-    width: usize,
-    height: usize,
-    steps: usize,
-    seed: u64,
-) -> Vec<SpiralWave> {
+pub fn run_simulation(width: usize, height: usize, steps: usize, seed: u64) -> Vec<SpiralWave> {
     let mut grid = SpatialGrid::random(width, height, seed);
     let mut snapshots = Vec::with_capacity(steps);
     for gen in 0..steps {
@@ -472,11 +462,7 @@ mod tests {
             })
             .collect();
         let metric = coexistence_metric(&history);
-        assert!(
-            (metric - 1.0).abs() < 1e-9,
-            "expected 1.0, got {}",
-            metric
-        );
+        assert!((metric - 1.0).abs() < 1e-9, "expected 1.0, got {}", metric);
     }
 
     #[test]
