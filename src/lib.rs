@@ -1,10 +1,49 @@
-// Spiral wave dynamics from Rock-Paper-Scissors cyclic dominance.
-// Uses ternary cell states (-1, 0, 1) mapped to Rock, Paper, Scissors.
+//! Spiral-wave dynamics from Rock-Paper-Scissors (RPS) cyclic dominance on a
+//! ternary lattice.
+//!
+//! Three species compete non-transitively — Rock beats Scissors, Scissors beats
+//! Paper, Paper beats Rock. Placed on a spatial grid with local dispersal, this
+//! generates the self-organizing **spiral waves** that sustain long-term
+//! biodiversity: the canonical finding of spatial RPS ecology.
+//!
+//! # When to use this
+//!
+//! Use this crate to study or demonstrate spatial cyclic dominance — how local
+//! invasion plus a majority rule nucleate rotating spiral patterns, and how
+//! biodiversity indices (Shannon entropy, Simpson index, evenness) evolve over
+//! generations. The automaton is fully deterministic given a seed, so every
+//! simulation is exactly reproducible.
+//!
+//! # Quick example
+//!
+//! ```
+//! use ternary_spiral::{run_simulation, BiodiversityIndex};
+//!
+//! // 30 generations on a 30x30 torus, seed 42 (deterministic).
+//! let history = run_simulation(30, 30, 30, 42);
+//! let final_wave = history.last().unwrap();
+//! let idx = BiodiversityIndex::from_wave(final_wave);
+//!
+//! // The cell count is conserved by the update rule.
+//! assert_eq!(final_wave.total_cells(), 30 * 30);
+//! // A well-mixed state sits near the maximum entropy ln(3).
+//! assert!(idx.shannon_entropy > 0.0 && idx.shannon_entropy.is_finite());
+//! ```
 
+#![deny(missing_docs)]
+
+/// The three competing cell states of the Rock-Paper-Scissors cycle.
+///
+/// States are mapped onto balanced trits `{-1, 0, 1}` so the dominance relation
+/// forms a directed 3-cycle: each species beats exactly one other and is beaten
+/// by the remaining one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RPSCell {
+    /// Rock (trit `-1`); beats [`Scissors`](RPSCell::Scissors).
     Rock = -1,
+    /// Paper (trit `0`); beats [`Rock`](RPSCell::Rock).
     Paper = 0,
+    /// Scissors (trit `1`); beats [`Paper`](RPSCell::Paper).
     Scissors = 1,
 }
 
@@ -29,14 +68,25 @@ impl RPSCell {
         }
     }
 
+    /// Returns the trit value (`-1`, `0` or `1`) of this cell, the inverse of
+    /// [`from_trit`](RPSCell::from_trit).
     pub fn to_trit(&self) -> i8 {
         *self as i8
     }
 }
 
+/// A two-dimensional lattice of [`RPSCell`]s with toroidal (wrap-around)
+/// boundaries.
+///
+/// Coordinates are `(x, y)` with `x` in `0..width` and `y` in `0..height`.
+/// Neighbors wrap across edges so every cell has exactly four von-Neumann
+/// neighbors.
 pub struct SpatialGrid {
+    /// Number of columns.
     pub width: usize,
+    /// Number of rows.
     pub height: usize,
+    /// Row-major cell storage: `cells[y][x]`.
     pub cells: Vec<Vec<RPSCell>>,
 }
 
@@ -69,10 +119,20 @@ impl SpatialGrid {
         }
     }
 
+    /// Returns the cell at column `x`, row `y`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `(x, y)` is outside `0..width` × `0..height`.
     pub fn get(&self, x: usize, y: usize) -> RPSCell {
         self.cells[y][x]
     }
 
+    /// Overwrites the cell at column `x`, row `y`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `(x, y)` is outside `0..width` × `0..height`.
     pub fn set(&mut self, x: usize, y: usize, cell: RPSCell) {
         self.cells[y][x] = cell;
     }
@@ -154,14 +214,26 @@ impl SpatialGrid {
     }
 }
 
+/// A population snapshot: how many of each species are present at a given
+/// [`generation`](SpiralWave::generation).
+///
+/// Built from a [`SpatialGrid`] via [`SpiralWave::from_grid`], or produced per
+/// step by [`run_simulation`]. It carries the counts needed for coexistence and
+/// dominance analysis without retaining the full grid.
 pub struct SpiralWave {
+    /// Generation index (1-based when produced by [`run_simulation`]).
     pub generation: u64,
+    /// Number of Rock cells.
     pub rock_count: usize,
+    /// Number of Paper cells.
     pub paper_count: usize,
+    /// Number of Scissors cells.
     pub scissors_count: usize,
 }
 
 impl SpiralWave {
+    /// Build a snapshot from a grid, recording the population counts at the
+    /// given generation.
     pub fn from_grid(grid: &SpatialGrid, generation: u64) -> Self {
         SpiralWave {
             generation,
@@ -189,6 +261,7 @@ impl SpiralWave {
         }
     }
 
+    /// Total number of cells across all three species.
     pub fn total_cells(&self) -> usize {
         self.rock_count + self.paper_count + self.scissors_count
     }
@@ -206,10 +279,21 @@ impl SpiralWave {
     }
 }
 
+/// Standard ecological diversity indices for a three-species community.
+///
+/// Computed from species proportions via [`BiodiversityIndex::compute`] (from a
+/// grid) or [`BiodiversityIndex::from_wave`] (from a snapshot). All fields are
+/// `0.0` for an empty population.
 pub struct BiodiversityIndex {
-    pub shannon_entropy: f64, // -sum(p * ln(p))
-    pub simpson_index: f64,   // 1 - sum(p^2)
-    pub evenness: f64,        // shannon / ln(3)
+    /// Shannon entropy `H = -Σ p_i ln(p_i)`; `0` for a monoculture, `ln 3` for
+    /// a perfectly even three-species mix.
+    pub shannon_entropy: f64,
+    /// Simpson index `λ = 1 - Σ p_i²`; the probability two randomly drawn cells
+    /// differ in species. Ranges `0` (monoculture) to `2/3` (even mix).
+    pub simpson_index: f64,
+    /// Pielou's evenness `J = H / ln(3)`; Shannon entropy normalized to
+    /// `[0, 1]`.
+    pub evenness: f64,
 }
 
 impl BiodiversityIndex {
