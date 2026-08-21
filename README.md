@@ -110,11 +110,8 @@ fn main() {
         );
     }
 
-    // Re-create final grid for biodiversity (run_simulation discards it)
-    use ternary_spiral::SpatialGrid;
-    let mut grid = SpatialGrid::random(40, 40, 42);
-    for _ in 0..20 { grid.step(); }
-    let idx = BiodiversityIndex::compute(&grid);
+    // Biodiversity of the final generation, derived directly from its counts.
+    let idx = BiodiversityIndex::from_wave(history.last().unwrap());
     println!("Shannon = {:.3}, Evenness = {:.3}", idx.shannon_entropy, idx.evenness);
 }
 ```
@@ -133,22 +130,30 @@ cargo run
 cargo test
 ```
 
-The 13 tests verify every layer of the dynamics:
+The unit test suite (plus a runnable doc-test) verifies every layer of the dynamics:
 
 | Test | What it verifies |
 |------|------------------|
 | `rps_dominance` | The cyclic dominance relation: Rock→Scissors→Paper→Rock, with no self-beating. |
 | `rps_from_trit` | Trit-to-cell conversion: `-1→Rock`, `0→Paper`, `1→Scissors`; invalid trits return `None`. |
+| `rps_to_trit_roundtrip` | `to_trit()`/`from_trit()` round-trip for every state. |
+| `rps_from_trit_out_of_range` | Boundary `i8` values (`-128, -2, 2, 3, 127`) are all rejected. |
 | `grid_new_all_paper` | Fresh grids initialize to the neutral Paper state. |
 | `grid_count` | `count()` correctly tallies species after manual `set()` operations. |
 | `grid_neighbors_wrap` | Toroidal boundary conditions: neighbors wrap from `(0,0)` to the opposite edge. |
 | `grid_step_invasion` | Invasion mechanics: a Scissors cell surrounded by Rock converts to Rock in one step. |
+| `grid_empty_is_noop` | A `0×0` grid never panics on `step()` and yields all-zero biodiversity. |
+| `grid_single_cell_is_stable` | On a `1×1` torus the cell is its own neighbors and never converts. |
 | `spiral_wave_dominant` | `dominant_species()` correctly identifies a majority > 50 %. |
 | `spiral_wave_coexistence` | `is_coexisting()` returns `true` only when all three species exceed the 5 % threshold. |
+| `dominant_species_none_when_balanced` | No `>50 %` majority (and empty) → `dominant_species()` is `None`. |
 | `biodiversity_uniform` | A monoculture yields Shannon entropy and Simpson index both ≈ 0. |
 | `biodiversity_equal` | A perfectly mixed 1:1:1 grid maximizes Shannon entropy (~ln 3) and passes `is_diverse()`. |
+| `biodiversity_hand_derived` | Non-uniform Shannon/Simpson/evenness match an independent hand derivation. |
+| `biodiversity_from_wave_matches_compute` | `from_wave()` agrees with `compute()` for identical counts. |
 | `invasion_fronts_detected` | `detect_invasion_fronts()` locates active competitive boundaries (e.g., Paper attacking Rock). |
 | `coexistence_metric_all` | The coexistence metric returns 1.0 when every generation in a history contains all three species. |
+| `coexistence_metric_empty_and_partial` | Empty history → `0.0`; a mixed history → `2/3`. |
 | `run_simulation_length` | The high-level runner produces exactly the requested number of generational snapshots. |
 
 ---
